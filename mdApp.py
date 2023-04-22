@@ -1,5 +1,9 @@
 import os, sys
-import datetime     #FOR date saving of current date
+import shelve
+import datetime
+from datetime import timedelta
+
+#FOR date saving of current date
 import base64       #FOR password encoding
 from kivy.lang import Builder
 from kivy.config import Config
@@ -19,7 +23,20 @@ from kivymd.uix.dialog import MDDialog
 import sqlite3
 from kivy.storage.jsonstore import JsonStore
 from kivymd.uix.snackbar import BaseSnackbar
+from kivymd.uix.card import MDCard
+import io
+from kivy.core.image import Image as CoreImage
+from kivymd.uix.list import ThreeLineListItem
 
+class CustomCard(MDCard):
+    id = StringProperty(None)
+    title = StringProperty(None)
+    source = StringProperty(None)
+    group = StringProperty(None)
+    card = StringProperty(None)
+    def assign_texture_from_database(self,dbTexture):
+        self.ids.display_image.source = dbTexture
+    
 class CustomSnackbar(BaseSnackbar):
     text = StringProperty(None)
     icon = StringProperty(None)
@@ -29,21 +46,91 @@ class CustomSnackbar(BaseSnackbar):
 class MainLayout(BoxLayout):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-    screen_manager = ObjectProperty(None)
-    dbconn    = None
-    dialogbox = None
-    
-    def __init__(self, *args, **kwargs):  
-        super().__init__(*args, **kwargs)
-
+        self.load_cards()
         self.store = JsonStore('loggedUser.json')
         try: 
             if self.store.get('UserInfo')['firstname'] != "":
                 self.screen_manager.current='dashboard_screen'
         except KeyError:
             self.screen_manager.current='login_screen'
+        
+    screen_manager = ObjectProperty(None)
+    dbconn    = None
+    dialogbox = None
+    def datettime_difference(self,from_date):
+        decimal_index = from_date.find('.')
+        if decimal_index != -1:
+            from_date = from_date[:decimal_index]
             
+        now = datetime.datetime.now()
+        record_date = datetime.datetime.strptime(from_date,"%Y-%m-%d %H:%M:%S")
+        try:
+            record_date = datetime.datetime.strptime(from_date,"%Y-%m-%d %H:%M:%S")
+        except:
+            print(f'error from date {from_date}')
+        
+        diff = now - record_date
+        if diff < timedelta(minutes=60):
+            return f"{int(diff.seconds/60)}m" 
+        
+        elif diff < timedelta(days=1):
+            return f"{int(diff.seconds/3600)}h"
+        
+        elif diff < timedelta(days=30):
+            return f"{diff.days}d"
+        else: 
+            return f"{int(diff.days/30)}m" 
+        
+    def load_posts(self):
+        self.dbconn = sqlite3.connect('kivysql.db', detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+        
+        dbcursor = self.dbconn.cursor()
+        dbcursor.execute("SELECT * FROM trnpost  ORDER BY trnpost.created_at DESC")
+        records = dbcursor.fetchall()
+        if not records:
+            print("no record exist")
+        else:
+            self.ids.scrn1_grid.clear_widgets()
+            for post in records:
+                self.ids.screen4_boxlayout.add_widget(ThreeLineListItem(text=f'[size=18sp][b]{post[2]}[/size][/b]',
+                                                                        secondary_text=f'[size=18sp][b]posted by{post[5]} . {self.datettime_difference(post[7])}[/size][/b]', 
+                                                                        tertiary_text=post[3]))
+                
+    
+            
+    
+
+    def load_cards(self):
+        self.dbconn = sqlite3.connect('kivysql.db', detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+        
+        dbcursor = self.dbconn.cursor()
+        dbcursor.execute("SELECT * FROM mstimages ORDER BY mstimages.code")
+        records = dbcursor.fetchall()
+        if not records:
+            print("no record exist")
+        else:
+            self.ids.scrn1_grid.clear_widgets()
+            for img_rec in records:
+                mdCard = CustomCard(id=str(img_rec[0]),
+                                    title=img_rec[1].title(),
+                                    source=f"",
+                                    group=img_rec[2].title(),
+                                    
+                                    )
+                cardcolor = img_rec[4]
+                if cardcolor == 5:
+                    mdCard.md_bg_color = "#DCA454"
+                else: 
+                    mdCard.md_bg_color = "#9174A9"
+                data = io.BytesIO(img_rec[3])
+                dbImage = CoreImage(data,ext="webp").texture
+                mdCard.assign_texture_from_database(dbImage)
+                self.ids.scrn1_grid.add_widget(mdCard)
+                
+                
+        self.dbconn.commit()
+        self.dbconn.close()     
+        
     def open_icon_snackbar(self):
         snackbar = CustomSnackbar(
             text="This is a sample snackbar error!",
